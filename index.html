@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>World Monitor AI - Expressiva</title>
+    <title>IA Assistente - Terminal Expressivo</title>
     <style>
         :root { --cor-ia: #00ff88; }
         body { 
@@ -11,32 +11,34 @@
             height: 100vh; margin: 0; overflow: hidden;
         }
 
+        /* Scanline efeito monitor antigo */
+        body::before {
+            content: " "; display: block; position: absolute; top: 0; left: 0; bottom: 0; right: 0;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            z-index: 2; pointer-events: none; background-size: 100% 2px, 3px 100%;
+        }
+
         /* Rosto Animado */
         .face { 
             width: 160px; height: 160px; background: #0a0a0a; border-radius: 50%; 
             display: flex; flex-direction: column; align-items: center; justify-content: center; 
             border: 3px solid var(--cor-ia); margin-bottom: 20px; transition: 0.3s;
-            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+            box-shadow: 0 0 20px rgba(0, 255, 136, 0.2); z-index: 3;
         }
-        .eye { width: 12px; height: 12px; background: var(--cor-ia); border-radius: 50%; margin: 0 20px; transition: 0.2s; }
-        .mouth { width: 40px; height: 4px; background: var(--cor-ia); border-radius: 5px; transition: 0.2s; }
+        .eye { width: 12px; height: 12px; background: var(--cor-ia); border-radius: 50%; margin: 0 20px; transition: 0.2s; box-shadow: 0 0 10px var(--cor-ia); }
+        .mouth { width: 40px; height: 4px; background: var(--cor-ia); border-radius: 5px; transition: 0.2s; box-shadow: 0 0 10px var(--cor-ia); }
         
         .speaking .mouth { height: 25px; border-radius: 50%; animation: talk 0.2s infinite alternate; }
         @keyframes talk { from { transform: scaleY(0.6); } to { transform: scaleY(1.2); } }
 
-        /* Barra de Carregamento */
-        #loader { width: 250px; height: 4px; background: #222; margin-top: 10px; display: block; }
-        #bar { width: 0%; height: 100%; background: var(--cor-ia); transition: 0.3s; }
-
-        #output { font-size: 0.9rem; text-align: center; width: 80%; height: 80px; color: var(--cor-ia); margin: 20px 0; }
+        #output { font-size: 1rem; text-align: center; width: 80%; height: 80px; color: var(--cor-ia); margin: 20px 0; z-index: 3; text-transform: uppercase; }
         
-        .input-box { display: flex; gap: 5px; }
-        input { padding: 12px; background: #000; border: 1px solid var(--cor-ia); color: var(--cor-ia); outline: none; width: 280px; }
+        .input-box { display: flex; gap: 10px; z-index: 3; }
+        input { padding: 12px; background: #000; border: 1px solid var(--cor-ia); color: var(--cor-ia); outline: none; width: 280px; font-family: 'Courier New', monospace; }
         button { padding: 10px 20px; background: var(--cor-ia); color: #000; border: none; font-weight: bold; cursor: pointer; }
-
-        /* Cores de Alerta */
-        .militar { --cor-ia: #ff4400; }
-        .global { --cor-ia: #00ccff; }
+        
+        .loading-bar { width: 200px; height: 2px; background: #222; margin-top: 10px; position: relative; }
+        #fill { width: 0%; height: 100%; background: var(--cor-ia); transition: 0.5s; }
     </style>
 </head>
 <body>
@@ -46,107 +48,119 @@
         <div class="mouth"></div>
     </div>
 
-    <div id="loader"><div id="bar"></div></div>
-    <div id="output">INICIALIZANDO PROTOCOLOS...</div>
+    <div id="status-bar" class="loading-bar"><div id="fill"></div></div>
+    <div id="output">INICIALIZANDO...</div>
 
     <div class="input-box">
-        <input type="text" id="userInput" placeholder="CONSULTAR TERMINAL..." autocomplete="off">
-        <button id="sendBtn">ENVIAR</button>
+        <input type="text" id="userInput" placeholder="DIGITE AQUI..." autocomplete="off">
+        <button id="sendBtn">EXECUTAR</button>
     </div>
 
 <script>
     const output = document.getElementById('output');
-    const bar = document.getElementById('bar');
     const face = document.getElementById('face');
+    const fill = document.getElementById('fill');
     let bancoDados = {};
+    let ultimaResposta = "";
 
-    // 1. CARREGAMENTO DOS DADOS (CORS FIX)
-    async function carregarTudo() {
-        // Usando o link RAW correto para evitar erros de leitura
-        const urls = [
-            'https://githubusercontent.com',
-            'https://githubusercontent.com'
-        ];
-
-        try {
-            for (let i = 0; i < urls.length; i++) {
-                const r = await fetch(urls[i]);
-                if (!r.ok) throw new Error();
-                const texto = await r.text();
+    // FUNÇÃO PARA CARREGAR OS ARQUIVOS SEM ERROS
+    async function carregarArquivos() {
+        const arquivos = ['respostas.txt', 'dados.txt'];
+        
+        for (let nome of arquivos) {
+            try {
+                // Adicionamos um timestamp para evitar que o navegador use uma versão antiga (cache)
+                const r = await fetch(nome + '?t=' + Date.now());
+                if (!r.ok) continue;
                 
-                texto.split('\n').forEach(linha => {
+                const texto = await r.text();
+                const linhas = texto.split('\n');
+
+                linhas.forEach(linha => {
+                    // Detecta se usa : ou =
                     let sep = linha.includes('=') ? '=' : ':';
                     if (!linha.includes(sep)) return;
 
-                    let [chave, valor] = linha.split(sep);
-                    chave = chave.trim().toLowerCase();
-                    valor = valor.replace(/#\d+/g, '').trim();
+                    let partes = linha.split(sep);
+                    let chave = partes[0].trim().toLowerCase();
+                    let valor = partes.slice(1).join(sep).replace(/#\d+/g, '').trim();
 
                     if (!bancoDados[chave]) bancoDados[chave] = [];
-                    if (!bancoDados[chave].includes(valor)) bancoDados[chave].push(valor);
+                    if (valor && !bancoDados[chave].includes(valor)) {
+                        bancoDados[chave].push(valor);
+                    }
                 });
-                bar.style.width = ((i + 1) * 50) + "%";
+            } catch (e) {
+                console.error("Erro ao carregar " + nome);
             }
-            setTimeout(() => {
-                document.getElementById('loader').style.display = 'none';
-                output.innerText = "CONEXÃO ESTABELECIDA COM WORLD MONITOR. AGUARDANDO.";
-            }, 500);
-        } catch (e) {
-            output.innerText = "ERRO CRÍTICO: FALHA NA SINCRONIZAÇÃO COM GITHUB.";
-            output.style.color = "red";
         }
+        
+        fill.style.width = "100%";
+        setTimeout(() => {
+            document.getElementById('status-bar').style.display = 'none';
+            output.innerText = "SISTEMA PRONTO. AGUARDANDO ENTRADA.";
+        }, 800);
     }
 
-    // 2. SISTEMA DE RESPOSTA INTELIGENTE (Busca por similaridade)
     function processar(pergunta) {
-        pergunta = pergunta.toLowerCase();
-        let melhorChave = "";
+        pergunta = pergunta.toLowerCase().trim();
+        if (!pergunta) return;
 
-        // Tenta achar qualquer palavra da pergunta que exista como chave no banco
+        let chaveEncontrada = "global";
+
+        // Busca se alguma palavra da pergunta bate com as chaves do banco
         for (let chave in bancoDados) {
-            if (pergunta.includes(chave) || chave.includes(pergunta)) {
-                melhorChave = chave;
+            if (pergunta.includes(chave)) {
+                chaveEncontrada = chave;
                 break;
             }
         }
 
-        // Se não achou nada específico, tenta categorias gerais
-        if (!melhorChave) {
-            if (pergunta.includes("guerra") || pergunta.includes("ataque")) melhorChave = "militar";
-            else if (pergunta.includes("tempo") || pergunta.includes("calor")) melhorChave = "clima";
-            else melhorChave = "global";
+        const opcoes = bancoDados[chaveEncontrada] || bancoDados["global"];
+        
+        if (!opcoes || opcoes.length === 0) {
+            falar("DADO NÃO ENCONTRADO NO BANCO LOCAL.");
+            return;
         }
 
-        const opcoes = bancoDados[melhorChave] || bancoDados["global"];
-        const resposta = opcoes[Math.floor(Math.random() * opcoes.length)];
+        // Evita repetir a mesma frase
+        let resposta;
+        do {
+            resposta = opcoes[Math.floor(Math.random() * opcoes.length)];
+        } while (resposta === ultimaResposta && opcoes.length > 1);
 
-        // Estética
-        if(melhorChave === "militar") document.body.className = "militar";
-        else if(melhorChave === "clima") document.body.className = "global";
-        else document.body.className = "";
-
+        ultimaResposta = resposta;
         falar(resposta);
     }
 
     function falar(texto) {
-        output.innerText = texto.toUpperCase();
+        output.innerText = texto;
+        
+        // Cancela falas anteriores para não encavalar
+        window.speechSynthesis.cancel();
+
         const voz = new SpeechSynthesisUtterance(texto);
         voz.lang = 'pt-BR';
-        voz.rate = 1.0;
+        voz.rate = 1.1;
 
         face.classList.add('speaking');
         voz.onend = () => face.classList.remove('speaking');
         window.speechSynthesis.speak(voz);
     }
 
+    // Eventos de botão e teclado
     document.getElementById('sendBtn').onclick = () => {
-        const val = document.getElementById('userInput').value;
-        if (!val) return;
-        processar(val);
-        document.getElementById('userInput').value = "";
+        const input = document.getElementById('userInput');
+        processar(input.value);
+        input.value = "";
     };
 
-    carregarTudo();
+    document.getElementById('userInput').onkeypress = (e) => {
+        if (e.key === 'Enter') document.getElementById('sendBtn').click();
+    };
+
+    // Inicia o carregamento
+    carregarArquivos();
 </script>
 </body>
 </html>
