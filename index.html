@@ -1,124 +1,210 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>IA Assistente - Global & Sobral</title>
-    <style>
-        :root { --neon: #00d9ff; --bg: #05070a; }
-        body { background: var(--bg); color: white; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+<script>
+const avatar = document.getElementById('avatarBox');
+const output = document.getElementById('output');
+const startBtn = document.getElementById('startBtn');
 
-        /* AVATAR COM EXPRESSÕES */
-        .avatar { width: 140px; height: 140px; position: relative; margin-bottom: 20px; transition: 0.3s; }
-        .face { width: 100%; height: 100%; background: #111; border: 3px solid var(--neon); border-radius: 35px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 0 20px var(--neon); }
-        .eyes { display: flex; gap: 35px; margin-bottom: 20px; }
-        .eye { width: 14px; height: 14px; background: var(--neon); border-radius: 50%; transition: 0.2s; box-shadow: 0 0 10px var(--neon); }
-        .mouth { width: 40px; height: 8px; background: var(--neon); border-radius: 4px; transition: 0.3s; box-shadow: 0 0 10px var(--neon); }
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+const recognition = new SpeechRecognition();
+recognition.lang = 'pt-BR';
 
-        /* ANIMAÇÕES DE ESTADO */
-        .listening .eye { height: 25px; animation: blink 1.2s infinite; }
-        .speaking .mouth { height: 25px; border-radius: 50%; animation: talk 0.25s infinite; }
-        .thinking .face { animation: pulse 0.8s infinite; }
+// ========================
+// BASE DE DADOS DINÂMICA
+// ========================
+let bancoDados = {};
+let memoria = {};
+let respostasFixas = {};
 
-        @keyframes talk { 0%, 100% { height: 8px; } 50% { height: 25px; } }
-        @keyframes blink { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.2); } }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.03); } 100% { transform: scale(1); } }
+// ========================
+// CARREGAR TXT
+// ========================
+async function carregarTXT(nome) {
+    try {
+        const r = await fetch(nome + "?t=" + Date.now());
+        return r.ok ? await r.text() : "";
+    } catch {
+        return "";
+    }
+}
 
-        #output { width: 85%; max-width: 500px; text-align: center; color: #00ff9d; min-height: 60px; margin-top: 15px; font-size: 1rem; line-height: 1.4; }
-        .btn { margin-top: 30px; padding: 18px 45px; border: none; background: var(--neon); color: black; border-radius: 50px; font-weight: bold; font-size: 1.1rem; cursor: pointer; box-shadow: 0 5px 20px rgba(0,217,255,0.4); active { transform: scale(0.95); } }
-    </style>
-</head>
-<body>
+// ========================
+// PROCESSAR LINHAS ( : )
+// ========================
+function processarLinhas(texto, destino) {
+    texto.split('\n').forEach(l => {
+        if (!l.includes(':')) return;
 
-    <div id="avatarBox" class="avatar">
-        <div class="face">
-            <div class="eyes"><div class="eye"></div><div class="eye"></div></div>
-            <div id="mouth" class="mouth"></div>
-        </div>
-    </div>
+        let [k, v] = l.split(':');
+        if (!k || !v) return;
 
-    <div id="output">Toque abaixo para iniciar o comando de voz</div>
-    <button class="btn" id="startBtn">ATIVAR ASSISTENTE</button>
+        let key = k.trim().toLowerCase();
+        let value = v.replace(/#\d+/g, '').trim();
 
-    <script>
-        // CHAVE PROTEGIDA (Fragmentada para evitar remoção automática do GitHub)
-        const p1 = "gsk";
-        const p2 = "W9D3XWk6p7";
-        const p3 = "hN7N0wE8lOWGdy";
-        const p4 = "b3FYbmIWy0E6pS";
-        const p5 = "p8TjAInwW6";
-        const GROQ_API_KEY = `${p1}_${p2}${p3}${p4}${p5}`;
+        if (!destino[key]) destino[key] = [];
+        destino[key].push(value);
 
-        const avatar = document.getElementById('avatarBox');
-        const output = document.getElementById('output');
-        const startBtn = document.getElementById('startBtn');
+        if (!memoria[key]) memoria[key] = [];
+    });
+}
 
-        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'pt-BR';
+// ========================
+// INICIAR SISTEMA
+// ========================
+async function iniciarSistema() {
+    const dados = await carregarTXT('dados.txt');
+    const respostas = await carregarTXT('respostas.txt');
 
-        async function lerArquivo(nome) {
-            try {
-                const r = await fetch(nome + "?t=" + Date.now()); // Evita cache
-                return r.ok ? await r.text() : "";
-            } catch (e) { return ""; }
-        }
+    processarLinhas(dados, bancoDados);
+    processarLinhas(respostas, respostasFixas);
+}
 
-        startBtn.onclick = () => {
-            recognition.start();
-            avatar.className = 'avatar listening';
-            output.innerText = "Ouvindo sua pergunta...";
-        };
+// ========================
+// DETECTAR TEMA (IA)
+// ========================
+function detectarTema(pergunta) {
+    const p = pergunta.toLowerCase();
 
-        recognition.onresult = async (event) => {
-            const pergunta = event.results[0][0].transcript;
-            output.innerText = "Você: " + pergunta;
-            avatar.className = 'avatar thinking';
+    if (p.includes("clima") || p.includes("tempo")) return "clima";
 
-            // Carrega conhecimento dos seus TXTs
-            const dadosTxt = await lerArquivo('dados.txt');
-            const respostasPre = await lerArquivo('respostas.txt');
+    if (p.match(/sobral|cidade|ceará|educação/)) return "sobral";
 
-            try {
-                const res = await fetch("https://groq.com", {
-                    method: "POST",
-                    headers: {
-                        "Authorization": `Bearer ${GROQ_API_KEY}`,
-                        "Content-Type": "application/json"
-                    },
-                    body: JSON.stringify({
-                        model: "llama-3.3-70b-versatile",
-                        messages: [
-                            {role: "system", content: `Você é uma assistente de inteligência global e regional. 
-                             CONHECIMENTO ATUAL: ${dadosTxt}. 
-                             Se houver uma resposta exata em: ${respostasPre}, use-a.
-                             Responda sobre política, militarismo, saúde e Sobral (Aracatiaçu, Jaibaras, etc). 
-                             Sempre responda por voz de forma objetiva.`},
-                            {role: "user", content: pergunta}
-                        ]
-                    })
-                });
+    if (p.match(/militar|guerra|exército|armas/)) return "militar";
 
-                const data = await res.json();
-                const respostaFinal = data.choices[0].message.content;
-                falar(respostaFinal);
+    if (p.match(/notícia|noticias|mundo|global|economia/)) return "global";
 
-            } catch (err) {
-                falar("Sistemas de comunicação instáveis. Verifique a chave ou conexão.");
+    return "global";
+}
+
+// ========================
+// INTRO HUMANO
+// ========================
+function introducao() {
+    const frases = [
+        "Olha,",
+        "Então,",
+        "Bom,",
+        "Deixa eu te explicar,",
+        "Seguinte,"
+    ];
+
+    return frases[Math.floor(Math.random() * frases.length)];
+}
+
+// ========================
+// RESPOSTA INTELIGENTE
+// ========================
+function pegarRespostaTema(tema) {
+    const lista = bancoDados[tema] || [];
+
+    if (lista.length === 0) return "Ainda não tenho informações sobre isso.";
+
+    if (!memoria[tema]) memoria[tema] = [];
+
+    const naoUsadas = lista.filter(i => !memoria[tema].includes(i));
+
+    if (naoUsadas.length === 0) {
+        memoria[tema] = [];
+        return pegarRespostaTema(tema);
+    }
+
+    let quantidade = Math.floor(Math.random() * 2) + 2;
+    let resposta = [];
+
+    for (let i = 0; i < quantidade; i++) {
+        const r = naoUsadas[Math.floor(Math.random() * naoUsadas.length)];
+        resposta.push(r);
+        memoria[tema].push(r);
+    }
+
+    return resposta.join(". ") + ".";
+}
+
+// ========================
+// RESPOSTA FIXA
+// ========================
+function respostaNatural(chave) {
+    const lista = respostasFixas[chave];
+    if (!lista) return null;
+
+    return lista[Math.floor(Math.random() * lista.length)];
+}
+
+// ========================
+// CLIMA REAL
+// ========================
+async function getClima() {
+    try {
+        const res = await fetch(
+            "https://api.open-meteo.com/v1/forecast?latitude=-3.68&longitude=-40.35&current_weather=true"
+        );
+        const data = await res.json();
+
+        const temp = data.current_weather.temperature;
+        const vento = data.current_weather.windspeed;
+
+        return `Agora está fazendo ${temp} graus com ventos de ${vento} quilômetros por hora.`;
+
+    } catch {
+        return "Não consegui obter o clima agora.";
+    }
+}
+
+// ========================
+// FALAR
+// ========================
+function falar(texto) {
+    const voz = new SpeechSynthesisUtterance(texto);
+    voz.lang = 'pt-BR';
+
+    voz.onstart = () => avatar.className = 'avatar speaking';
+    voz.onend = () => {
+        avatar.className = 'avatar';
+        output.innerText = texto;
+    };
+
+    speechSynthesis.speak(voz);
+}
+
+// ========================
+// BOTÃO
+// ========================
+startBtn.onclick = () => {
+    avatar.className = 'avatar listening';
+    output.innerText = "Ouvindo...";
+    recognition.start();
+};
+
+// ========================
+// RECONHECIMENTO (IA)
+// ========================
+recognition.onresult = async (event) => {
+    const pergunta = event.results[0][0].transcript.toLowerCase();
+    avatar.className = 'avatar thinking';
+
+    // 🔹 CLIMA PRIORIDADE
+    if (pergunta.includes("clima") || pergunta.includes("tempo")) {
+        const clima = await getClima();
+        falar(introducao() + " " + clima);
+        return;
+    }
+
+    // 🔹 RESPOSTAS DIRETAS
+    for (let chave in respostasFixas) {
+        if (pergunta.includes(chave)) {
+            const resp = respostaNatural(chave);
+            if (resp) {
+                falar(introducao() + " " + resp);
+                return;
             }
-        };
-
-        function falar(texto) {
-            const voz = new SpeechSynthesisUtterance(texto);
-            voz.lang = 'pt-BR';
-            voz.onstart = () => avatar.className = 'avatar speaking';
-            voz.onend = () => {
-                avatar.className = 'avatar';
-                output.innerText = texto;
-            };
-            window.speechSynthesis.speak(voz);
-            output.innerText = "Assistente respondendo...";
         }
-    </script>
-</body>
-</html>
+    }
+
+    // 🔹 IA DETECTA TEMA
+    const tema = detectarTema(pergunta);
+    const resposta = pegarRespostaTema(tema);
+
+    falar(introducao() + " " + resposta);
+};
+
+// INICIAR
+iniciarSistema();
+</script>
