@@ -1,236 +1,165 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta charset="UTF-8">
-<title>IA Assistente</title>
+    <meta charset="UTF-8">
+    <title>IA Assistente Emocional</title>
+    <style>
+        body { background: #0a0a0a; color: #fff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; overflow: hidden; }
+        
+        /* Rosto Animado com Transição de Cores */
+        .face { 
+            width: 180px; height: 180px; background: #1a1a1a; border-radius: 50%; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center; 
+            border: 4px solid var(--cor-ia, #00ff88); 
+            margin-bottom: 30px; transition: all 0.5s ease; position: relative;
+            box-shadow: 0 0 20px var(--cor-ia-trans, rgba(0, 255, 136, 0.1));
+        }
 
-<style>
-body {
-    font-family: Arial;
-    background: #111;
-    color: #fff;
-    text-align: center;
-}
+        /* Variáveis de Cores de Emoção */
+        .neutro { --cor-ia: #00ff88; --cor-ia-trans: rgba(0, 255, 136, 0.2); }
+        .curioso { --cor-ia: #ffea00; --cor-ia-trans: rgba(255, 234, 0, 0.2); }
+        .calmo { --cor-ia: #00ccff; --cor-ia-trans: rgba(0, 204, 255, 0.2); }
+        .alerta { --cor-ia: #ff4400; --cor-ia-trans: rgba(255, 68, 0, 0.2); }
 
-.avatar {
-    width: 100px;
-    height: 100px;
-    background: #444;
-    border-radius: 50%;
-    margin: 20px auto;
-}
+        .eyes { display: flex; gap: 40px; margin-bottom: 25px; }
+        .eye { 
+            width: 14px; height: 14px; background: var(--cor-ia); 
+            border-radius: 50%; transition: 0.3s; box-shadow: 0 0 10px var(--cor-ia); 
+        }
+        .mouth { 
+            width: 45px; height: 6px; background: var(--cor-ia); 
+            border-radius: 10px; transition: 0.3s; box-shadow: 0 0 10px var(--cor-ia); 
+        }
 
-.speaking { background: green; }
-.listening { background: blue; }
-.thinking { background: orange; }
+        /* Animações */
+        .speaking .mouth { height: 35px; border-radius: 50%; animation: talk 0.2s infinite alternate; }
+        .listening .eye { height: 4px; }
+        
+        @keyframes talk { from { transform: scaleY(0.6); } to { transform: scaleY(1.2); } }
 
-#output {
-    margin: 20px;
-    font-size: 18px;
-}
-
-input {
-    width: 70%;
-    padding: 10px;
-    font-size: 16px;
-}
-
-button {
-    padding: 10px;
-    margin: 5px;
-}
-</style>
+        #output { font-size: 1.1rem; text-align: center; width: 85%; max-width: 500px; height: 80px; margin-bottom: 20px; color: #ccc; }
+        .controls { display: flex; gap: 10px; width: 90%; max-width: 450px; }
+        input { flex: 1; padding: 15px; border-radius: 30px; border: 1px solid #333; background: #111; color: white; outline: none; }
+        button { padding: 0 25px; border-radius: 30px; border: none; background: var(--cor-ia); color: #000; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .mic-btn { background: #222; color: white; }
+    </style>
 </head>
+<body class="neutro">
 
-<body>
+    <div id="face" class="face">
+        <div class="eyes"><div class="eye"></div><div class="eye"></div></div>
+        <div class="mouth"></div>
+    </div>
 
-<div id="avatarBox" class="avatar"></div>
-<div id="output">Digite ou fale algo</div>
+    <div id="output">Sincronizando banco de dados...</div>
 
-<input id="inputText" placeholder="Digite sua pergunta..." />
-<br>
-<button id="sendBtn">Enviar</button>
-<button id="startBtn">🎤 Falar</button>
+    <div class="controls">
+        <button id="startBtn" class="mic-btn">🎤</button>
+        <input type="text" id="userInput" placeholder="O que deseja saber?">
+        <button id="sendBtn">Enviar</button>
+    </div>
 
 <script>
-const avatar = document.getElementById('avatarBox');
-const output = document.getElementById('output');
-const startBtn = document.getElementById('startBtn');
-const sendBtn = document.getElementById('sendBtn');
-const inputText = document.getElementById('inputText');
+    const face = document.getElementById('face');
+    const body = document.body;
+    const output = document.getElementById('output');
+    const userInput = document.getElementById('userInput');
+    let bancoConhecimento = {};
+    let ultimaResposta = "";
 
-// ========================
-// VOZ (seguro)
-// ========================
-let recognition;
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-
-if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
-    recognition.lang = 'pt-BR';
-
-    recognition.onresult = (event) => {
-        const texto = event.results[0][0].transcript;
-        responder(texto);
-    };
-
-    recognition.onerror = () => {
-        output.innerText = "Erro na voz.";
-        avatar.className = 'avatar';
-    };
-}
-
-// ========================
-// BASE IA
-// ========================
-let bancoDados = {};
-let memoria = {};
-let respostasFixas = {};
-
-// ========================
-// CARREGAR TXT
-// ========================
-async function carregarTXT(nome) {
-    try {
-        const r = await fetch(nome + "?t=" + Date.now());
-        return r.ok ? await r.text() : "";
-    } catch {
-        return "";
-    }
-}
-
-// ========================
-function processarLinhas(texto, destino) {
-    texto.split('\n').forEach(l => {
-        if (!l.includes(':')) return;
-
-        let [k, v] = l.split(':');
-        let key = k.trim().toLowerCase();
-        let value = v.replace(/#\d+/g, '').trim();
-
-        if (!destino[key]) destino[key] = [];
-        destino[key].push(value);
-
-        if (!memoria[key]) memoria[key] = [];
-    });
-}
-
-// ========================
-async function iniciarSistema() {
-    const dados = await carregarTXT('dados.txt');
-    const respostas = await carregarTXT('respostas.txt');
-
-    processarLinhas(dados, bancoDados);
-    processarLinhas(respostas, respostasFixas);
-}
-
-// ========================
-function detectarTema(p) {
-    p = p.toLowerCase();
-
-    if (p.includes("clima")) return "clima";
-    if (p.match(/sobral|cidade|ceará/)) return "sobral";
-    if (p.match(/militar|guerra/)) return "militar";
-    return "global";
-}
-
-// ========================
-function introducao() {
-    const f = ["Olha,", "Então,", "Bom,", "Seguinte,"];
-    return f[Math.floor(Math.random() * f.length)];
-}
-
-// ========================
-function pegarRespostaTema(tema) {
-    const lista = bancoDados[tema] || [];
-
-    if (!lista.length) return "Ainda não sei sobre isso.";
-
-    const r = lista[Math.floor(Math.random() * lista.length)];
-    return r;
-}
-
-// ========================
-function respostaNatural(chave) {
-    const lista = respostasFixas[chave];
-    if (!lista) return null;
-    return lista[Math.floor(Math.random() * lista.length)];
-}
-
-// ========================
-async function getClima() {
-    try {
-        const res = await fetch("https://api.open-meteo.com/v1/forecast?latitude=-3.68&longitude=-40.35&current_weather=true");
-        const data = await res.json();
-
-        return `Está fazendo ${data.current_weather.temperature} graus.`;
-    } catch {
-        return "Não consegui ver o clima.";
-    }
-}
-
-// ========================
-function falar(texto) {
-    output.innerText = texto;
-
-    const voz = new SpeechSynthesisUtterance(texto);
-    voz.lang = 'pt-BR';
-
-    avatar.className = 'avatar speaking';
-
-    voz.onend = () => avatar.className = 'avatar';
-
-    speechSynthesis.speak(voz);
-}
-
-// ========================
-// IA CENTRAL
-// ========================
-async function responder(pergunta) {
-    avatar.className = 'avatar thinking';
-
-    pergunta = pergunta.toLowerCase();
-
-    if (pergunta.includes("clima")) {
-        const clima = await getClima();
-        falar(introducao() + " " + clima);
-        return;
+    async function carregar() {
+        try {
+            const urls = [
+                'https://githubusercontent.com',
+                'https://githubusercontent.com'
+            ];
+            for (let url of urls) {
+                const r = await fetch(url);
+                const texto = await r.text();
+                texto.split('\n').forEach(linha => {
+                    let sep = linha.includes('=') ? '=' : ':';
+                    if(!linha.includes(sep)) return;
+                    let [chave, valor] = linha.split(sep);
+                    valor = valor.replace(/#\d+/g, '').trim();
+                    chave = chave.trim().toLowerCase();
+                    if(!bancoConhecimento[chave]) bancoConhecimento[chave] = [];
+                    if(!bancoConhecimento[chave].includes(valor)) bancoConhecimento[chave].push(valor);
+                });
+            }
+            output.innerText = "Sistemas online. Estou pronta.";
+        } catch(e) { output.innerText = "Erro na conexão."; }
     }
 
-    for (let chave in respostasFixas) {
-        if (pergunta.includes(chave)) {
-            falar(introducao() + " " + respostaNatural(chave));
-            return;
+    function definirEmocao(texto, chave) {
+        body.className = "neutro"; // Reset
+        const t = texto.toLowerCase();
+
+        if (chave === "militar" || t.includes("guerra") || t.includes("conflito")) {
+            body.className = "alerta";
+        } else if (chave === "clima" || t.includes("tempo") || t.includes("graus")) {
+            body.className = "calmo";
+        } else if (t.includes("sabia") || chave === "tecnologia" || t.includes("curiosidade")) {
+            body.className = "curioso";
+        } else {
+            body.className = "neutro";
         }
     }
 
-    const tema = detectarTema(pergunta);
-    falar(introducao() + " " + pegarRespostaTema(tema));
-}
+    function responder(pergunta) {
+        pergunta = pergunta.toLowerCase();
+        let chaveElegida = "global";
 
-// ========================
-// BOTÕES
-// ========================
-sendBtn.onclick = () => {
-    if (!inputText.value) return;
-    responder(inputText.value);
-    inputText.value = "";
-};
+        for (let chave in bancoConhecimento) {
+            if (pergunta.includes(chave)) {
+                chaveElegida = chave;
+                break;
+            }
+        }
 
-startBtn.onclick = () => {
-    if (!recognition) {
-        output.innerText = "Voz não suportada nesse dispositivo.";
-        return;
+        const opcoes = bancoConhecimento[chaveElegida];
+        if(!opcoes) return falar("Não encontrei dados sobre isso.");
+
+        let resposta;
+        do {
+            resposta = opcoes[Math.floor(Math.random() * opcoes.length)];
+        } while (resposta === ultimaResposta && opcoes.length > 1);
+
+        ultimaResposta = resposta;
+        definirEmocao(resposta, chaveElegida);
+        falar(resposta);
     }
 
-    avatar.className = 'avatar listening';
-    output.innerText = "Ouvindo...";
-    recognition.start();
-};
+    function falar(texto) {
+        output.innerText = texto;
+        const voz = new SpeechSynthesisUtterance(texto);
+        voz.lang = 'pt-BR';
+        
+        face.classList.add('speaking');
+        voz.onend = () => face.classList.remove('speaking');
+        window.speechSynthesis.speak(voz);
+    }
 
-// iniciar
-iniciarSistema();
+    // Voz
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (Speech) {
+        const rec = new Speech();
+        rec.lang = 'pt-BR';
+        rec.onresult = (e) => responder(e.results[0][0].transcript);
+        document.getElementById('startBtn').onclick = () => {
+            face.classList.add('listening');
+            output.innerText = "Estou ouvindo...";
+            rec.start();
+        };
+        rec.onend = () => face.classList.remove('listening');
+    }
+
+    document.getElementById('sendBtn').onclick = () => {
+        if(!userInput.value) return;
+        responder(userInput.value);
+        userInput.value = "";
+    };
+
+    carregar();
 </script>
-
 </body>
 </html>
